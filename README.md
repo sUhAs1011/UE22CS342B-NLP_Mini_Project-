@@ -6,12 +6,14 @@ In our project our NLP model analyze mining laws, regulations, and compliance ru
 
 ### Activity Diagram
 
-![image](https://github.com/user-attachments/assets/b86bbaeb-78ef-4290-b826-dc6ab0fecb22)
+![image](https://github.com/user-attachments/assets/f290ed16-905d-4806-986a-1ffd2a2516aa)
+
 
 
 ### Architecture Diagram
 
-![image](https://github.com/user-attachments/assets/62b4624f-bc29-4931-b1b6-49cc7d8c435e)
+![image](https://github.com/user-attachments/assets/1f15b5dd-4cbd-49ee-a975-9e9f61fcc783)
+
 
 
 Team Members:  
