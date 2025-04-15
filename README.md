@@ -4,6 +4,15 @@ This is our NLP(Natural Language Processing) coruse mini-project which we call i
 
 In our project our NLP model analyze mining laws, regulations, and compliance rules. It processes user queries, retrieves relevant legal provisions, and detects contradictions between different laws. In case any conflict exists, the bot flags it and suggests resolutions accordingly. Additionally, it also provides risk assessments and legal recommendations to ensure mining companies remain compliant with regulatory frameworks.
 
+### Activity Diagram
+
+![image](https://github.com/user-attachments/assets/b86bbaeb-78ef-4290-b826-dc6ab0fecb22)
+
+
+### Architecture Diagram
+
+![image](https://github.com/user-attachments/assets/62b4624f-bc29-4931-b1b6-49cc7d8c435e)
+
 
 Team Members:  
 - Suhas Venkata Karamalaputti (PES2UG22CS590)  
