@@ -9,165 +9,161 @@ import random
 import tkinter as tk
 from tkinter import scrolledtext, Button, Entry, Label
 
-# Set up logging
+# Logging setup
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level=logging.INFO,
-                    handlers=[logging.StreamHandler(stream=sys.stdout)])
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=logging.INFO,
+                        handlers=[logging.StreamHandler(stream=sys.stdout)])
 
 def clean_text(text):
-    """
-    Cleans the text by normalizing whitespace and removing special characters
-    while preserving those relevant to legal text.
-    """
-    text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
-    text = re.sub(r'[^\w\s.,;\'"():%/-]', '', text)  # Remove special characters, keep legal symbols
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'[^\w\s.,;\'"():%/-]', '', text)
     return text.strip()
 
 def assess_compliance_risk(law1_text, law2_text, query=""):
-    """
-    Assesses the compliance risk based on potential contradictions between two laws.
-    """
     risk_score = 0.0
     explanation = "No significant conflict detected."
 
     if "shall not" in law1_text and "shall" in law2_text:
         risk_score = 0.6 + random.uniform(0, 0.2)
-        explanation = f"Potential conflict regarding '{query}': One law prohibits an action that the other permits."
+        explanation = f"⚠ Conflict regarding '{query}': One law prohibits what another mandates. Recommendation: Adhere to the stricter clause."
     elif "must" in law1_text and "may not" in law2_text:
         risk_score = 0.6 + random.uniform(0, 0.2)
-        explanation = f"Potential conflict regarding '{query}': One law mandates an action that the other forbids."
+        explanation = f"⚠ Conflict regarding '{query}': One law requires what another forbids. Recommendation: Clarify the intent with regulatory counsel."
     elif "is prohibited" in law1_text and "is allowed" in law2_text:
-        risk_score = 0.9
-        explanation = f"High conflict regarding '{query}': Direct contradiction between prohibition and allowance."
+        risk_score = 0.7 + random.uniform(0, 0.2)
+        explanation = f"🚨 Direct contradiction on '{query}': One law allows what another prohibits. Recommendation: Follow the most recent or stricter law."
     elif "should" in law1_text and "is not required" in law2_text:
-        risk_score = 0.3 + random.uniform(0, 0.2)
-        explanation = f"Potential conflict regarding '{query}': One law recommends an action that the other does not require"
+        risk_score = 0.35
+        explanation = f"⚠ Potential ambiguity in guidance for '{query}'. Recommendation: Treat 'should' as 'must' for better compliance posture."
 
     return risk_score, explanation
 
 def main():
-    """
-    Main function to load the trained SBERT model, connect to MongoDB,
-    and provide a search interface for mining laws.
-    """
-    # Step 1: Load trained SBERT model
     try:
-        model_path = "trained_sbert_mininglaw"
+        model_path = "trained_sbert_mininglaw_risk_aware_with_negatives"
         if not os.path.exists(model_path):
-            raise ValueError(f"Trained model not found at {model_path}.  Make sure you have trained the model and that the path is correct.")
+            raise ValueError(f"Trained model not found at {model_path}")
         model = SentenceTransformer(model_path)
-        logging.info(f"Loaded trained SBERT model from '{model_path}'")
+        logging.info(f"✅ Loaded trained model from '{model_path}'")
     except Exception as e:
-        logging.error(f"Error loading the trained SBERT model: {e}")
+        logging.error(f"❌ Error loading model: {e}")
         return
 
-    # Step 2: Connect to MongoDB
     client = MongoClient("mongodb://localhost:27017/")
     db = client["mining_law_db"]
     pdf_data_collection = db["pdf_data"]
 
-    # Step 3: Load data from MongoDB
     try:
-        pdf_data = list(pdf_data_collection.find())
+        pdf_data = list(pdf_data_collection.find({"text": {"$exists": True}}))
         if not pdf_data:
-            logging.warning("No data found in the 'pdf_data' collection in MongoDB.")
+            logging.warning("⚠ No data found in 'pdf_data'")
             client.close()
             return
-        logging.info(f"Loaded {len(pdf_data)} documents from MongoDB")
+        logging.info(f"📄 Loaded {len(pdf_data)} documents from MongoDB")
     except Exception as e:
-        logging.error(f"Error loading data from MongoDB: {e}")
+        logging.error(f"❌ Failed to load data: {e}")
         client.close()
         return
 
-    # Step 4: Encode data
     try:
-        pdf_embeddings = model.encode(
-            [item["text"] for item in pdf_data],
-            convert_to_tensor=True,
-            show_progress_bar=True
-        )
-        logging.info("Encoded data from MongoDB successfully.")
+        all_texts = [doc["text"] for doc in pdf_data]
+        pdf_embeddings = model.encode(all_texts, convert_to_tensor=True, show_progress_bar=True)
+        logging.info("✅ Embedded all law documents")
     except Exception as e:
-        logging.error(f"Error encoding data: {e}")
+        logging.error(f"❌ Error embedding documents: {e}")
         client.close()
         return
 
-    # Step 5: Search function
     def search_laws(query):
-        """
-        Searches for the most similar document in the database based on a query,
-        and also checks for potential contradictions with other retrieved laws.
-        """
         try:
             query_embedding = model.encode(query, convert_to_tensor=True)
             similarities = util.pytorch_cos_sim(query_embedding, pdf_embeddings)[0]
             top_results = torch.topk(similarities, 3)
+
+            results_text.delete(1.0, tk.END)
+
             top_indices = top_results.indices.tolist()
             top_scores = top_results.values.tolist()
 
-            results_text.delete(1.0, tk.END)  # Clear previous results
-
-            for i, index in enumerate(top_indices):
-                filename = pdf_data[index].get('filename', "Filename not found")
-                text = pdf_data[index].get('text', "Text not found")
+            for i, idx in enumerate(top_indices):
+                doc = pdf_data[idx]
+                filename = doc.get("filename", "Unknown")
+                excerpt = doc.get("text", "")[:300].strip()
                 score = top_scores[i]
-                logging.info(f"Match {i+1} found in file: {filename} with score: {score:.4f}")
-                results_text.insert(tk.END, f"\n🔍 Match {i+1} for your query: '{query}'\n")
-                results_text.insert(tk.END, f"📄 Filename: {filename}\n")
-                results_text.insert(tk.END, f"📝 Excerpt: {text[:200]}...\n")
+                
+                if score < 0.15:  # Check for similarity score below 0.2
+                    results_text.insert(tk.END, "\n❌ Irrelevant question. The query does not match any relevant legal text.\n")
+                    return  # Exit the function if the score is too low
+
+                results_text.insert(tk.END, f"\n🔹 Match {i+1} for query: '{query}'\n")
+                results_text.insert(tk.END, f"📄 Document: {filename}\n")
+                results_text.insert(tk.END, f"📝 Content Excerpt: {excerpt}...\n")
                 results_text.insert(tk.END, f"🔗 Similarity Score: {score:.4f}\n")
                 results_text.insert(tk.END, "-" * 60 + "\n")
 
-            if len(top_indices) > 1:
-                contradictions_found = False
-                for i in range(len(top_indices)):
-                    for j in range(i + 1, len(top_indices)):
-                        law1_text = pdf_data[top_indices[i]]['text']
-                        law2_text = pdf_data[top_indices[j]]['text']
-                        risk_score, explanation = assess_compliance_risk(law1_text, law2_text, query)
-                        if risk_score > 0.0:
-                            contradictions_found = True
-                            logging.warning(
-                                f"Potential contradiction detected between documents: {pdf_data[top_indices[i]].get('filename')} and {pdf_data[top_indices[j]].get('filename')}")
-                            results_text.insert(tk.END, f"\n🚨 Potential Compliance Risk Detected:\n")
-                            results_text.insert(tk.END, f"  Risk Score: {risk_score:.2f}\n")
-                            results_text.insert(tk.END, f"  Explanation: {explanation}\n")
-                            results_text.insert(tk.END, "-" * 60 + "\n")
-                if not contradictions_found:
-                    results_text.insert(tk.END, "\n✅ No contradictions detected among the top matching documents.\n")
+            results_text.insert(tk.END, "\n⚖️ Compliance Risk Evaluation\n")
+            contradiction_flag = False
+
+            for i in range(len(top_indices)):
+                for j in range(i + 1, len(top_indices)):
+                    law1 = pdf_data[top_indices[i]].get("text", "")
+                    law2 = pdf_data[top_indices[j]].get("text", "")
+                    risk_score, explanation = assess_compliance_risk(law1, law2, query)
+
+                    if risk_score > 0.0:
+                        contradiction_flag = True
+                        results_text.insert(tk.END, f"\n🚨 Contradiction Detected Between Match {i+1} and Match {j+1}\n")
+                        results_text.insert(tk.END, f"🔺 Risk Score: {risk_score:.2f}\n")
+                        results_text.insert(tk.END, f"📌 Legal Recommendation: {explanation}\n")
+
+                        # ➕ Suggest an alternative non-conflicting document
+                        excluded = {top_indices[i], top_indices[j]}
+                        for k, doc in enumerate(pdf_data):
+                            if k in excluded:
+                                continue
+                            alt_text = doc.get("text", "")
+                            alt_score = float(util.pytorch_cos_sim(query_embedding, model.encode(alt_text, convert_to_tensor=True))[0])
+                            if alt_score > 0.5:
+                                results_text.insert(tk.END, f"\n🧭 Suggested Alternative Law: {doc.get('filename', 'Unnamed')}\n")
+                                results_text.insert(tk.END, f"📑 Excerpt: {alt_text[:200]}...\n")
+                                results_text.insert(tk.END, f"🔗 Similarity: {alt_score:.4f}\n")
+                                break
+
                     results_text.insert(tk.END, "-" * 60 + "\n")
 
-        except Exception as e:
-            logging.error(f"Error during search: {e}")
-            results_text.insert(tk.END, f"Error during search: {e}\n")
+            if not contradiction_flag:
+                results_text.insert(tk.END, "\n✅ No contradictions detected. The legal provisions appear consistent.\n")
+                results_text.insert(tk.END, "-" * 60 + "\n")
 
-    # Step 6: Create GUI
+        except Exception as e:
+            logging.error(f"❌ Query error: {e}")
+            results_text.insert(tk.END, f"\n❌ Error processing query: {e}")
+
     def on_search_button_click():
-        query = query_entry.get()
-        search_laws(query)
+        query = query_entry.get().strip()
+        if query:
+            search_laws(query)
 
     root = tk.Tk()
-    root.title("Mining Law Search")
+    root.title("Mining Law Chatbot")
 
-    query_label = Label(root, text="Enter your mining law question:")
+    query_label = Label(root, text="🔍 Enter your mining law question:")
     query_label.pack(pady=10)
 
-    query_entry = Entry(root, width=50)
-    query_entry.pack(pady=10)
+    query_entry = Entry(root, width=60)
+    query_entry.pack(pady=5)
 
     search_button = Button(root, text="Search", command=on_search_button_click)
     search_button.pack(pady=10)
 
-    results_label = Label(root, text="Search Results:")
+    results_label = Label(root, text="📋 Results, Contradictions & Recommendations:")
     results_label.pack()
 
-    results_text = scrolledtext.ScrolledText(root, width=60, height=20)
+    results_text = scrolledtext.ScrolledText(root, width=90, height=30)
     results_text.pack(pady=10)
 
-    #centering the main window
     root.eval('tk::PlaceWindow . center')
-
     root.mainloop()
     client.close()
 
