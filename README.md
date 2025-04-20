@@ -14,6 +14,25 @@ In our project our NLP model analyze mining laws, regulations, and compliance ru
 
 ![image](https://github.com/user-attachments/assets/1f15b5dd-4cbd-49ee-a975-9e9f61fcc783)
 
+### Commands To Run
+
+
+ ```shell
+   python extract.py
+   # or
+   python3 extract.py
+   # to extract information from pdf files and push it into mongoDB database
+   ```
+
+ ```shell
+   python train.py
+   # or
+   python3 train.py
+   # to train the model
+   ```
+
+
+
 
 
 Team Members:  
