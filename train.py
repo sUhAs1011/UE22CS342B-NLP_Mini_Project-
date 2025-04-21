@@ -17,22 +17,9 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.INFO,
                     handlers=[logging.StreamHandler(stream=sys.stdout)])
 
-def create_training_examples(collection_name="pdf_data", question_templates=None, num_negative_samples=2) -> List[InputExample]:
+def create_training_examples_original(collection_name="pdf_data", question_templates=None, num_negative_samples=2) -> List[InputExample]:
     """
-    Creates InputExample pairs from data in a MongoDB collection, addressing
-    deficiencies in handling simple and complex questions, compliance risks,
-    and importantly, generating negative examples for irrelevant questions.
-
-    Args:
-        collection_name (str, optional): The name of the MongoDB collection.
-            Defaults to "pdf_data".
-        question_templates (dict, optional): A dictionary of question templates
-            for different risk levels. If None, default templates are used.
-        num_negative_samples (int, optional): The number of negative examples
-            to generate for each positive example. Defaults to 2.
-
-    Returns:
-        List[InputExample]: A list of InputExample objects, or an empty list on error.
+    Creates InputExample pairs from data in a MongoDB collection.
     """
     examples = []
     try:
@@ -48,9 +35,9 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
         # Default question templates
         if question_templates is None:
             question_templates = {
-                "high_risk": "What are the potential compliance risks associated with the content in the document '{filename}', and what specific recommendations can ensure full compliance, including adherence to recent amendments and legal precedents?",
-                "medium_risk": "Analyze the document '{filename}' for compliance requirements.  Identify areas where interpretations may vary, and outline steps to mitigate potential conflicts between different legal interpretations.",
-                "low_risk": "Provide a summary of the key provisions in the document '{filename}' related to [specific topic, e.g., environmental regulations, licensing procedures].",
+                "high_risk": "What are the potential compliance risks associated with the content in the document '{filename}'?",
+                "medium_risk": "Analyze the document '{filename}' for compliance requirements.",
+                "low_risk": "Provide a summary of the key provisions in the document '{filename}' related to [specific topic].",
                 "simple": "What is the main purpose of the document '{filename}'?",
             }
 
@@ -58,12 +45,12 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
             filename = doc.get("filename")
             text = doc.get("text")
             if filename and text:
-                # Assign a risk level (Improved logic)
+                # Assign a risk level (Original logic)
                 if "shall not" in text.lower() or "must not" in text.lower() or "prohibited" in text.lower():
                     risk_level = "high_risk"
-                elif "except" in text.lower() or "provided that" in text.lower() or "means" in text.lower():
+                elif "except" in text.lower() or "provided that" in text.lower():
                     risk_level = "medium_risk"
-                elif "procedure" in text.lower() or "define" in text.lower() or "policy" in text.lower() :
+                elif "procedure" in text.lower() or "define" in text.lower():
                     risk_level = "low_risk"
                 else:
                     risk_level = "simple"
@@ -92,24 +79,90 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
         if 'client' in locals() and client:
             client.close()
 
+def create_training_examples_enhanced(collection_name="pdf_data", question_templates=None, num_negative_samples=3) -> List[InputExample]:
+    """
+    Creates InputExample pairs from data in a MongoDB collection, with enhanced negative sampling
+    and irrelevant question generation.
+    """
+    examples = []
+    try:
+        # Connect to MongoDB
+        client = MongoClient("mongodb://localhost:27017/")  # Adjust connection string if needed
+        db = client["mining_law_db"]  # Use your database name
+        collection = db[collection_name]
+
+        # Fetch all documents from the collection
+        all_documents = list(collection.find({"text": {"$exists": True}, "filename": {"$exists": True}}))
+        logging.info(f"Loaded {len(all_documents)} valid documents from MongoDB collection '{collection_name}'")
+
+        if not all_documents:
+            logging.warning("No valid documents found in the collection.")
+            return []
+
+        # Default question templates (expanded)
+        if question_templates is None:
+            question_templates = {
+                "high_risk": "What are the critical compliance obligations and potential risks outlined in the document '{filename}', considering recent legal updates?",
+                "medium_risk": "Explain the key regulatory requirements and interpretations within the document '{filename}' that mining companies must adhere to.",
+                "low_risk": "Summarize the specific guidelines and procedures detailed in '{filename}' concerning [specific topic, e.g., environmental permits].",
+                "simple": "What is the primary subject or purpose of the legal document '{filename}'?",
+                "irrelevant": [
+                    "What is the weather forecast for tomorrow?",
+                    "Who won the last football match?",
+                    "What is the capital of France?",
+                    "Tell me a joke about mining.",
+                    "How to bake a cake?",
+                ]
+            }
+
+        for i, doc in enumerate(all_documents):
+            filename = doc["filename"]
+            text = doc["text"]
+
+            # Assign a risk level (Improved logic)
+            if "shall not" in text.lower() or "must not" in text.lower() or "prohibited" in text.lower():
+                risk_level = "high_risk"
+            elif "except" in text.lower() or "provided that" in text.lower() or "means" in text.lower():
+                risk_level = "medium_risk"
+            elif "procedure" in text.lower() or "define" in text.lower() or "policy" in text.lower() :
+                risk_level = "low_risk"
+            else:
+                risk_level = "simple"
+
+            # Create positive example
+            question = question_templates.get(risk_level, question_templates["simple"]).format(filename=filename)
+            examples.append(InputExample(texts=[question, text], label=1.0))
+
+            # Generate negative examples from other documents
+            other_relevant_docs = [d for j, d in enumerate(all_documents) if i != j]
+            if other_relevant_docs:
+                negative_samples = random.sample(other_relevant_docs, min(num_negative_samples, len(other_relevant_docs)))
+                for neg_doc in negative_samples:
+                    negative_text = neg_doc["text"]
+                    examples.append(InputExample(texts=[question, negative_text], label=0.0))
+            else:
+                logging.warning(f"Not enough other relevant documents for negative sampling for '{filename}'.")
+
+            # Generate negative examples with irrelevant questions
+            num_irrelevant = 1  # Generate a few irrelevant questions per document
+            for _ in range(num_irrelevant):
+                irrelevant_question = random.choice(question_templates["irrelevant"])
+                examples.append(InputExample(texts=[irrelevant_question, text], label=0.0))
+
+        return examples
+
+    except Exception as e:
+        logging.error(f"Error loading data from MongoDB: {e}")
+        return []  # Return an empty list on error
+    finally:
+        if 'client' in locals() and client:
+            client.close()
 
 
 def assess_compliance_risk(law1_text, law2_text, query=""):
     """
     Assesses the compliance risk based on potential contradictions between two laws.
-    This is a simplified example; a real-world implementation would require a much
-    more sophisticated rule-based or ML-driven approach. The function is made more
-    dynamic by incorporating the query into the explanation and adjusting the
-    risk score range.
-
-    Args:
-        law1_text (str): The text of the first law.
-        law2_text (str): The text of the second law.
-        query (str, optional): The user's query. This is used to provide more context
-            in the explanation. Defaults to "".
-
-    Returns:
-        tuple: (risk_score, explanation). Risk score is a float between 0 (no risk) and 1 (high risk).
+    (Retaining the original assess_compliance_risk function)
     """
     risk_score = 0.0
     explanation = "No significant conflict detected."
@@ -164,52 +217,51 @@ def assess_compliance_risk(law1_text, law2_text, query=""):
         explanation = f"Low potential conflict regarding '{query}': One law is an amendment to the other, which may lead to conflicts in application. Legal recommendation: Mining companies should prioritize compliance with the most recent amendment."
         return risk_score, explanation
 
-    # 5. Consider broader semantic relationships (requires more advanced NLP)
-    #    Example: Using a pre-trained model to check for semantic similarity
-    #    This is computationally expensive and requires an external library like SentenceTransformers
-    #    For demonstration, I will skip this step in this function.
-
     return risk_score, explanation
 
 
 def main():
     """
-    Main function to load data from MongoDB, create training examples (including negative samples),
-    train a SentenceTransformer model, and save it.
+    Main function to load data from MongoDB, create enhanced training examples (including hard negatives
+    and irrelevant questions), train a SentenceTransformer model, and save it.
     """
-    # Step 1: Load data from MongoDB and create training examples (with negative samples)
-    train_examples = create_training_examples(collection_name="pdf_data", num_negative_samples=3) # Increased negative samples
+    # Step 1: Load data from MongoDB and create enhanced training examples
+    train_examples = create_training_examples_enhanced(collection_name="pdf_data", num_negative_samples=3)
 
     if not train_examples:
         logging.warning("No training examples generated. Check the data in your MongoDB collection.")
         return
 
     # Step 2: Create DataLoader
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16) # Increased batch size for efficiency
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=32) # Increased batch size
 
     # Step 3: Define model
     model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Step 4: Define loss (using MultipleNegativesRankingLoss - corrected name)
+    # Step 4: Define loss
     train_loss = losses.MultipleNegativesRankingLoss(model)
 
     # Step 5: Train the model
+    num_epochs = 200
+    warmup_steps = len(train_dataloader) // 10
+
+    logging.info(f"Starting training for {num_epochs} epochs with {len(train_dataloader)} steps per epoch and {warmup_steps} warmup steps.")
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="1Torch was not compiled with flash attention.")
         model.fit(
             train_objectives=[(train_dataloader, train_loss)],
-            epochs=175,
-            warmup_steps=len(train_dataloader) // 10,
+            epochs=num_epochs,
+            warmup_steps=warmup_steps,
             show_progress_bar=True
         )
 
     # Step 6: Save the model
     try:
-        model.save("trained_sbert_mininglaw_risk_aware_with_negatives")
-        logging.info("✅ Model saved to 'trained_sbert_mininglaw_risk_aware_with_negatives'")
+        model.save("trained_sbert_mininglaw_risk_aware_with_negatives_enhanced")
+        logging.info("✅ Enhanced model saved to 'trained_sbert_mininglaw_risk_aware_with_negatives_enhanced'")
     except Exception as e:
-        logging.error(f"Error saving model: {e}")
-
+        logging.error(f"Error saving enhanced model: {e}")
 
 
 if __name__ == "__main__":
