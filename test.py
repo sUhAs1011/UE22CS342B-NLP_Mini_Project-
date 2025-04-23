@@ -7,7 +7,7 @@ import os
 import re
 import random
 import tkinter as tk
-from tkinter import scrolledtext, Button, Entry, Label
+from tkinter import scrolledtext, Button, Entry, Label, PhotoImage, font, messagebox
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
@@ -148,25 +148,47 @@ def main():
     root = tk.Tk()
     root.title("Mining Law Chatbot")
 
-    query_label = Label(root, text="🔍 Enter your mining law question:")
-    query_label.pack(pady=10)
+    # --- Styling ---
+    bg_color = '#E6F2FF'  # Light blue
+    text_color = '#2E3B55'  # Dark blue-gray
+    button_color = '#66B2FF'  # Medium blue
+    highlight_color = '#A0D6FF' # Lighter blue for highlights
+    font_family = "Arial"  # Change this to your desired font family
+    font_size = 11
+    font_style = font.Font(family=font_family, size=font_size)
+    bold_font = font.Font(family=font_family, size=font_size, weight="bold")
 
-    query_entry = Entry(root, width=60)
-    query_entry.pack(pady=5)
+    root.configure(bg=bg_color)
 
-    search_button = Button(root, text="Search", command=on_search_button_click)
-    search_button.pack(pady=10)
+    # --- Header ---
+    header_font = font.Font(family=font_family, size=18, weight="bold")
+    header_label = Label(root, text="Mining Law Compliance Chatbot", bg=bg_color, fg=text_color, font=header_font)
+    header_label.pack(pady=(10, 20))
 
-    results_label = Label(root, text="📋 Results, Contradictions & Recommendations:")
+    # --- Query Input ---
+    query_label = Label(root, text="🔍 Enter your mining law question:", bg=bg_color, fg=text_color, font=bold_font)
+    query_label.pack(pady=(0, 5))
+
+    query_entry = Entry(root, width=60, font=font_style, bg='white', fg=text_color)
+    query_entry.pack(pady=(0, 10))
+
+    search_button = Button(root, text="Search", command=on_search_button_click, bg=button_color, fg='white', font=bold_font, relief=tk.RAISED, borderwidth=2)
+    search_button.pack(pady=(0, 15))
+    search_button.config(highlightbackground=bg_color)  # Remove the border
+
+    # --- Results Output ---
+    results_label = Label(root, text="📋 Results, Contradictions & Recommendations:", bg=bg_color, fg=text_color, font=bold_font)
     results_label.pack()
 
-    results_text = scrolledtext.ScrolledText(root, width=90, height=30)
-    results_text.pack(pady=10)
+    results_text = scrolledtext.ScrolledText(root, width=90, height=30, bg='#F9F9F9', fg=text_color, font=font_style)
+    results_text.pack(pady=(0, 20))
 
+    # --- Center Window ---
     root.eval('tk::PlaceWindow . center')
+
+    # --- Run Main Loop ---
     root.mainloop()
     client.close()
 
 if __name__ == "__main__":
     main()
-
