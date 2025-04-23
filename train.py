@@ -10,6 +10,26 @@ from sklearn.metrics import accuracy_score  # Import accuracy_score
 from typing import List, Dict, Tuple
 import re
 import random
+import numpy as np  # Import numpy
+import spacy  # Import spaCy
+
+# Load a spaCy model (you might need to download one, e.g., 'en_core_web_sm')
+try:
+    nlp = spacy.load("en_core_web_sm")
+    logging.info("✅ spaCy model loaded successfully.")
+except OSError:
+    logging.error("❌ Could not load spaCy model. Downloading 'en_core_web_sm'...")
+    try:
+        import spacy.cli
+        spacy.cli.download("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")
+        logging.info("✅ spaCy model downloaded and loaded successfully.")
+    except Exception as e:
+        logging.error(f"❌ Error downloading or loading spaCy model: {e}")
+        nlp = None  # Handle the case where spaCy fails to load
+except Exception as e:
+    logging.error(f"❌ Error loading spaCy model: {e}")
+    nlp = None
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
@@ -93,8 +113,47 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
             client.close()
 
 
+def assess_compliance_risk(law1_text, law2_text, query="", model=None):
+    """
+    Assesses the compliance risk based on potential contradictions between two laws,
+    incorporating semantic similarity.
 
-def assess_compliance_risk(law1_text, law2_text, query=""):
+    Args:
+        law1_text (str): The text of the first law.
+        law2_text (str): The text of the second law.
+        query (str, optional): The user's query.
+        model (SentenceTransformer, optional):  Pre-trained SentenceTransformer model.
+
+    Returns:
+        tuple: (risk_score, explanation).
+    """
+    risk_score = 0.0
+    explanation = "No significant conflict detected."
+
+    if model is None:
+        logging.warning("No SentenceTransformer model provided.  Using basic keyword checks only.")
+        return assess_compliance_risk_keyword_based(law1_text, law2_text, query)
+
+    # 1. Semantic Similarity
+    embedding1 = model.encode(law1_text, convert_to_tensor=True)
+    embedding2 = model.encode(law2_text, convert_to_tensor=True)
+    similarity = util.pytorch_cos_sim(embedding1, embedding2)[0][0].item()
+
+    if similarity < 0.7:  # Adjust threshold as needed
+        risk_score = 0.6 + (0.7 - similarity) * 0.4  # Scale risk score
+        explanation = f"Moderate to high potential conflict regarding '{query}': Semantic analysis indicates significant differences between the two laws (similarity: {similarity:.2f}). Legal recommendation: Conduct a thorough review of both laws to identify specific areas of conflict."
+        return risk_score, explanation
+
+    # 2. Keyword-based check (as a fallback and to refine the analysis)
+    keyword_risk, keyword_explanation = assess_compliance_risk_keyword_based(law1_text, law2_text, query)
+    if keyword_risk > 0:
+        risk_score = max(risk_score, keyword_risk)
+        explanation = keyword_explanation + " (Further refined by keyword analysis.)"
+
+    return risk_score, explanation
+
+
+def assess_compliance_risk_keyword_based(law1_text, law2_text, query=""):
     """
     Assesses the compliance risk based on potential contradictions between two laws.
     This is a simplified example; a real-world implementation would require a much
@@ -164,13 +223,26 @@ def assess_compliance_risk(law1_text, law2_text, query=""):
         explanation = f"Low potential conflict regarding '{query}': One law is an amendment to the other, which may lead to conflicts in application. Legal recommendation: Mining companies should prioritize compliance with the most recent amendment."
         return risk_score, explanation
 
-    # 5. Consider broader semantic relationships (requires more advanced NLP)
-    #    Example: Using a pre-trained model to check for semantic similarity
-    #    This is computationally expensive and requires an external library like SentenceTransformers
-    #    For demonstration, I will skip this step in this function.
-
     return risk_score, explanation
 
+def extract_entities(text):
+    """
+    Extracts named entities from the given text using spaCy.
+
+    Args:
+        text (str): The input text.
+
+    Returns:
+        list: A list of named entities.  Each entity is a tuple (text, label).
+              Returns an empty list if spaCy is not loaded.
+    """
+    if nlp is None:
+        logging.warning("spaCy model not loaded. NER will not be performed.")
+        return []
+
+    doc = nlp(text)
+    entities = [(ent.text, ent.label_) for ent in doc.ents]
+    return entities
 
 def main():
     """
@@ -210,6 +282,22 @@ def main():
     except Exception as e:
         logging.error(f"Error saving model: {e}")
 
+
+    # Example usage (after training and saving the model):
+    loaded_model = SentenceTransformer("trained_sbert_mininglaw_risk_aware_with_negatives")
+    law1 = "This law prohibits mining within 100 meters of a river."
+    law2 = "This law allows mining within 50 meters of a stream."
+    query = "Mining near water bodies"
+    risk_score, explanation = assess_compliance_risk(law1, law2, query, loaded_model)
+    print(f"Risk Score: {risk_score:.2f}")
+    print(f"Explanation: {explanation}")
+
+    # NER Example
+    example_text = "The MMDR Act applies to mining operations in Rajasthan and Gujarat."
+    entities = extract_entities(example_text)
+    print("\nNamed Entities:")
+    for entity, label in entities:
+        print(f"{entity} ({label})")
 
 
 if __name__ == "__main__":
