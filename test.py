@@ -8,6 +8,33 @@ import re
 import random
 import tkinter as tk
 from tkinter import scrolledtext, Button, Entry, Label, PhotoImage, font, messagebox
+import spacy
+import nltk
+from nltk.corpus import wordnet
+
+# Download required NLTK data
+try:
+    wordnet.synsets('test')  # Test if wordnet is available
+except LookupError:
+    nltk.download('wordnet')
+
+# Load spaCy model
+try:
+    nlp = spacy.load("en_core_web_sm")
+    logging.info("✅ spaCy model loaded successfully.")
+except OSError:
+    logging.error("❌ Could not load spaCy model. Downloading 'en_core_web_sm'...")
+    try:
+        import spacy.cli
+        spacy.cli.download("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")
+        logging.info("✅ spaCy model downloaded and loaded successfully.")
+    except Exception as e:
+        logging.error(f"❌ Error downloading or loading spaCy model: {e}")
+        nlp = None
+except Exception as e:
+    logging.error(f"❌ Error loading spaCy model: {e}")
+    nlp = None
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
@@ -38,6 +65,45 @@ def assess_compliance_risk(law1_text, law2_text, query=""):
         explanation = f"⚠ Potential ambiguity in guidance for '{query}'. Recommendation: Treat 'should' as 'must' for better compliance posture."
 
     return risk_score, explanation
+
+def expand_query(query, top_n=5):
+    """
+    Expands the query using synonyms and related terms from spaCy and WordNet.
+
+    Args:
+        query (str): The original query.
+        top_n (int, optional): The number of expanded queries to return. Defaults to 5.
+
+    Returns:
+        list: A list of expanded queries.
+    """
+    if nlp is None:
+        logging.warning("spaCy model not loaded. Query expansion will not be performed.")
+        return [query]
+
+    doc = nlp(query)
+    expanded_queries = set()
+    expanded_queries.add(query)  # Add the original query
+
+    for token in doc:
+        if token.pos_ in ["NOUN", "ADJ", "VERB"]:  # Expand only nouns, adjectives, and verbs
+            # Add synonyms based on wordnet
+            try:
+                synsets = wordnet.synsets(token.text)
+                for synset in synsets:
+                    for lemma in synset.lemmas():
+                        expanded_queries.add(lemma.name().replace("_", " "))
+            except LookupError as e:
+                logging.warning(f"WordNet LookupError: {e}. Please ensure nltk data is downloaded. Try: nltk.download('wordnet')")
+            except Exception as e:
+                logging.warning(f"Error expanding query with WordNet: {e}")
+
+    # Convert set to list and limit the number of expanded queries
+    expanded_queries_list = list(expanded_queries)
+    if len(expanded_queries_list) > top_n:
+        return random.sample(expanded_queries_list, top_n)
+    else:
+        return expanded_queries_list
 
 def main():
     try:
@@ -77,9 +143,24 @@ def main():
 
     def search_laws(query):
         try:
-            query_embedding = model.encode(query, convert_to_tensor=True)
-            similarities = util.pytorch_cos_sim(query_embedding, pdf_embeddings)[0]
-            top_results = torch.topk(similarities, 3)
+            # Expand the query
+            expanded_queries = expand_query(query)
+            logging.info(f"Expanded queries: {expanded_queries}")
+
+            # Encode all expanded queries
+            query_embeddings = model.encode(expanded_queries, convert_to_tensor=True)
+
+            # Calculate similarities for each expanded query and average them
+            all_similarities = []
+            for query_embedding in query_embeddings:
+                similarities = util.pytorch_cos_sim(query_embedding, pdf_embeddings)[0]
+                all_similarities.append(similarities)
+
+            # Average the similarities across all expanded queries
+            averaged_similarities = torch.mean(torch.stack(all_similarities), dim=0)
+
+            # Get top results based on averaged similarities
+            top_results = torch.topk(averaged_similarities, 3)
 
             results_text.delete(1.0, tk.END)
 
@@ -92,7 +173,7 @@ def main():
                 excerpt = doc.get("text", "")[:300].strip()
                 score = top_scores[i]
                 
-                if score < 0.15:  # Check for similarity score below 0.2
+                if score < 0.16:  # Check for similarity score below 0.2
                     results_text.insert(tk.END, "\n❌ Irrelevant question. The query does not match any relevant legal text.\n")
                     return  # Exit the function if the score is too low
 
