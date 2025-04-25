@@ -42,6 +42,9 @@ When an invalid prompt is entered
 When we enter a valid prompt
 ![image](https://github.com/user-attachments/assets/7ae55a44-ccb6-4d82-80c0-2ffc51af87b0)
 
+Testing
+![image](https://github.com/user-attachments/assets/0f3c605e-dd24-4fe3-ad9e-2a7a58d26eb4)
+
 
 
 
