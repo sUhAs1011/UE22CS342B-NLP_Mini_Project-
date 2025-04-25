@@ -33,6 +33,16 @@ Our model used sentence transformer and cosine similarity as the primary methodo
    # to train the model
    ```
 
+### Output Screenshots
+
+When an invalid prompt is entered
+![image](https://github.com/user-attachments/assets/e935d900-05d2-4616-a30e-1e542e30eb1e)
+
+
+When we enter a valid prompt
+![image](https://github.com/user-attachments/assets/7ae55a44-ccb6-4d82-80c0-2ffc51af87b0)
+
+
 
 
 
