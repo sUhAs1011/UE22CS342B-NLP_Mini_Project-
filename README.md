@@ -43,8 +43,9 @@ When we enter a valid prompt
 ![image](https://github.com/user-attachments/assets/d9b9f11e-e38d-4238-bb8b-eacd12991b1e)
 
 
-Testing
-![image](https://github.com/user-attachments/assets/0f3c605e-dd24-4fe3-ad9e-2a7a58d26eb4)
+Training
+![image](https://github.com/user-attachments/assets/0c4e4a02-001d-428a-89fd-8f17622e65ce)
+
 
 
 
