@@ -36,11 +36,12 @@ Our model used sentence transformer and cosine similarity as the primary methodo
 ### Output Screenshots
 
 When an invalid prompt is entered
-![image](https://github.com/user-attachments/assets/e935d900-05d2-4616-a30e-1e542e30eb1e)
+![image](https://github.com/user-attachments/assets/8c04b803-7133-45a9-a5f1-ab1e3347d70b)
 
 
 When we enter a valid prompt
-![image](https://github.com/user-attachments/assets/7ae55a44-ccb6-4d82-80c0-2ffc51af87b0)
+![image](https://github.com/user-attachments/assets/d9b9f11e-e38d-4238-bb8b-eacd12991b1e)
+
 
 Testing
 ![image](https://github.com/user-attachments/assets/0f3c605e-dd24-4fe3-ad9e-2a7a58d26eb4)
