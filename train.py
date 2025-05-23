@@ -1,17 +1,15 @@
 from pymongo import MongoClient
-from sentence_transformers import SentenceTransformer, InputExample, losses, LoggingHandler, util
+from sentence_transformers import SentenceTransformer, InputExample, losses, util
 from torch.utils.data import DataLoader
 import logging
 import sys
 import warnings
-from torch.utils.tensorboard import SummaryWriter  # Import SummaryWriter for TensorBoard
 import torch
-from sklearn.metrics import accuracy_score  # Import accuracy_score
-from typing import List, Dict, Tuple
-import re
 import random
-import numpy as np  # Import numpy
-import spacy  # Import spaCy
+import re
+import numpy as np
+import spacy
+from typing import List, Dict, Tuple
 
 # Load a spaCy model (you might need to download one, e.g., 'en_core_web_sm')
 try:
@@ -37,212 +35,140 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.INFO,
                     handlers=[logging.StreamHandler(stream=sys.stdout)])
 
-def create_training_examples(collection_name="pdf_data", question_templates=None, num_negative_samples=2) -> List[InputExample]:
+def clean_text(text: str) -> str:
+    """Cleans text by removing extra whitespace and some special characters."""
+    text = re.sub(r'\s+', ' ', text).strip()
+    # You might want to be more selective with char removal depending on legal text specifics
+    # text = re.sub(r'[^\w\s.,;\'"():%/-]', '', text)
+    return text
+
+def create_training_examples(collection_name="pdf_data", question_templates=None, num_negative_samples=3) -> List[InputExample]:
     """
-    Creates InputExample pairs from data in a MongoDB collection, addressing
-    deficiencies in handling simple and complex questions, compliance risks,
-    and importantly, generating negative examples for irrelevant questions.
+    Creates InputExample pairs from data in a MongoDB collection, focusing on passage-level
+    chunking and generating diverse positive and negative examples for RAG.
 
     Args:
-        collection_name (str, optional): The name of the MongoDB collection.
-            Defaults to "pdf_data".
-        question_templates (dict, optional): A dictionary of question templates
-            for different risk levels. If None, default templates are used.
-        num_negative_samples (int, optional): The number of negative examples
-            to generate for each positive example. Defaults to 2.
+        collection_name (str): The name of the MongoDB collection.
+        question_templates (dict): A dictionary of question templates for different risk levels.
+        num_negative_samples (int): The number of negative examples to generate for each positive example.
 
     Returns:
         List[InputExample]: A list of InputExample objects, or an empty list on error.
     """
     examples = []
     try:
-        # Connect to MongoDB
-        client = MongoClient("mongodb://localhost:27017/")  # Adjust connection string if needed
-        db = client["mining_law_db"]  # Use your database name
+        client = MongoClient("mongodb://localhost:27017/")
+        db = client["mining_law_db"]
         collection = db[collection_name]
 
-        # Fetch all documents from the collection
-        all_documents = list(collection.find())
-        logging.info(f"Loaded {len(all_documents)} documents from MongoDB collection '{collection_name}'")
+        all_documents_data = list(collection.find({"text": {"$exists": True}, "filename": {"$exists": True}}))
+        logging.info(f"Loaded {len(all_documents_data)} documents from MongoDB collection '{collection_name}'")
 
-        # Default question templates
+        if not all_documents_data:
+            logging.warning("No documents found in the database. Exiting training example creation.")
+            return []
+
+        # Default question templates (can be customized)
         if question_templates is None:
             question_templates = {
-                "high_risk": "What are the potential compliance risks associated with the content in the document '{filename}', and what specific recommendations can ensure full compliance, including adherence to recent amendments and legal precedents?",
-                "medium_risk": "Analyze the document '{filename}' for compliance requirements.  Identify areas where interpretations may vary, and outline steps to mitigate potential conflicts between different legal interpretations.",
-                "low_risk": "Provide a summary of the key provisions in the document '{filename}' related to [specific topic, e.g., environmental regulations, licensing procedures].",
-                "simple": "What is the main purpose of the document '{filename}'?",
+                "high_risk": "What are the potential compliance risks associated with {topic} in the document '{filename}'?",
+                "medium_risk": "Analyze {topic} in document '{filename}' for varying interpretations.",
+                "low_risk": "Summarize the key provisions related to {topic} in document '{filename}'.",
+                "simple": "What is the main purpose of the legal text regarding {topic} in '{filename}'?",
+                "irrelevant": [
+                    "What is the current stock market trend?",
+                    "Tell me about the history of space travel.",
+                    "How do I cook pasta?",
+                    "What's the best movie of all time?",
+                    "Explain quantum physics simply.",
+                ]
             }
 
-        for i, doc in enumerate(all_documents):
-            filename = doc.get("filename")
-            text = doc.get("text")
-            if filename and text:
-                # Assign a risk level (Improved logic)
-                if "shall not" in text.lower() or "must not" in text.lower() or "prohibited" in text.lower():
-                    risk_level = "high_risk"
-                elif "except" in text.lower() or "provided that" in text.lower() or "means" in text.lower():
-                    risk_level = "medium_risk"
-                elif "procedure" in text.lower() or "define" in text.lower() or "policy" in text.lower() :
-                    risk_level = "low_risk"
-                else:
-                    risk_level = "simple"
+        all_chunks = []
+        for doc in all_documents_data:
+            filename = doc["filename"]
+            full_text = clean_text(doc["text"])
+            
+            # Simple paragraph-based chunking
+            # You could also implement token-based chunking with overlap for more control
+            # using libraries like langchain's RecursiveCharacterTextSplitter
+            chunks = [clean_text(para) for para in full_text.split('\n\n') if clean_text(para)]
+            for i, chunk in enumerate(chunks):
+                all_chunks.append({"filename": filename, "chunk_text": chunk, "doc_idx": all_documents_data.index(doc), "chunk_idx_in_doc": i})
 
-                # Create positive example
-                question = question_templates.get(risk_level, question_templates["simple"]).format(filename=filename)
-                examples.append(InputExample(texts=[question, text], label=1.0))
+        if not all_chunks:
+            logging.warning("No valid chunks created from documents. Exiting training example creation.")
+            return []
 
-                # Generate negative examples by pairing the question with text from other documents
-                other_documents = [d for j, d in enumerate(all_documents) if i != j and d.get("text")]
-                if other_documents:
-                    negative_samples = random.sample(other_documents, min(num_negative_samples, len(other_documents)))
-                    for neg_doc in negative_samples:
-                        negative_text = neg_doc["text"]
-                        examples.append(InputExample(texts=[question, negative_text], label=0.0))
-                else:
-                    logging.warning(f"Not enough other documents to generate negative samples for '{filename}'.")
-            else:
-                logging.warning(f"Skipping document with missing filename or text: {doc}")
+        for i, current_chunk_info in enumerate(all_chunks):
+            filename = current_chunk_info["filename"]
+            chunk_text = current_chunk_info["chunk_text"]
+            doc_idx = current_chunk_info["doc_idx"]
+            chunk_idx_in_doc = current_chunk_info["chunk_idx_in_doc"]
+
+            # Heuristic to assign a 'topic' or general subject to the chunk
+            # This is a very basic example; a real-world scenario might use keyword extraction
+            # or a more sophisticated NLP model to identify the core topic.
+            topic = "mining regulations"
+            if "environmental" in chunk_text.lower() or "emission" in chunk_text.lower():
+                topic = "environmental protection"
+            elif "license" in chunk_text.lower() or "permit" in chunk_text.lower():
+                topic = "licensing procedures"
+            elif "safety" in chunk_text.lower() or "accident" in chunk_text.lower():
+                topic = "mine safety"
+            elif "tax" in chunk_text.lower() or "royalty" in chunk_text.lower():
+                topic = "taxation and royalties"
+
+            # Assign a risk level based on keywords in the chunk
+            risk_level = "simple"
+            if any(k in chunk_text.lower() for k in ["shall not", "must not", "prohibited", "illegal", "violation"]):
+                risk_level = "high_risk"
+            elif any(k in chunk_text.lower() for k in ["except", "provided that", "may", "should", "guideline"]):
+                risk_level = "medium_risk"
+            elif any(k in chunk_text.lower() for k in ["procedure", "define", "policy", "framework"]):
+                risk_level = "low_risk"
+
+            # Create positive example: question with the relevant chunk
+            question_template = question_templates.get(risk_level, question_templates["simple"])
+            question = question_template.format(topic=topic, filename=filename)
+            examples.append(InputExample(texts=[question, chunk_text], label=1.0))
+
+            # --- Generate Negative Examples ---
+            num_neg_per_type = num_negative_samples // 2 if num_negative_samples > 1 else num_negative_samples
+
+            # 1. Negative samples from OTHER DOCUMENTS (random chunks)
+            other_doc_chunks = [
+                c for c in all_chunks
+                if c["doc_idx"] != doc_idx # Exclude chunks from the same document
+            ]
+            if other_doc_chunks:
+                negative_other_doc_chunks = random.sample(other_doc_chunks, min(num_neg_per_type, len(other_doc_chunks)))
+                for neg_chunk_info in negative_other_doc_chunks:
+                    examples.append(InputExample(texts=[question, neg_chunk_info["chunk_text"]], label=0.0))
+
+            # 2. Negative samples from THE SAME DOCUMENT (different chunks)
+            same_doc_other_chunks = [
+                c for c in all_chunks
+                if c["doc_idx"] == doc_idx and c["chunk_idx_in_doc"] != chunk_idx_in_doc # Exclude the current chunk
+            ]
+            if same_doc_other_chunks and num_neg_per_type > 0:
+                negative_same_doc_chunks = random.sample(same_doc_other_chunks, min(num_neg_per_type, len(same_doc_other_chunks)))
+                for neg_chunk_info in negative_same_doc_chunks:
+                    examples.append(InputExample(texts=[question, neg_chunk_info["chunk_text"]], label=0.0))
+            
+            # 3. Irrelevant questions paired with the current positive chunk
+            if question_templates.get("irrelevant"):
+                irrelevant_question = random.choice(question_templates["irrelevant"])
+                examples.append(InputExample(texts=[irrelevant_question, chunk_text], label=0.0))
+
         return examples
 
     except Exception as e:
-        logging.error(f"Error loading data from MongoDB: {e}")
-        return []  # Return an empty list on error
+        logging.error(f"Error creating training examples: {e}", exc_info=True)
+        return []
     finally:
         if 'client' in locals() and client:
             client.close()
-
-
-def assess_compliance_risk(law1_text, law2_text, query="", model=None):
-    """
-    Assesses the compliance risk based on potential contradictions between two laws,
-    incorporating semantic similarity.
-
-    Args:
-        law1_text (str): The text of the first law.
-        law2_text (str): The text of the second law.
-        query (str, optional): The user's query.
-        model (SentenceTransformer, optional):  Pre-trained SentenceTransformer model.
-
-    Returns:
-        tuple: (risk_score, explanation).
-    """
-    risk_score = 0.0
-    explanation = "No significant conflict detected."
-
-    if model is None:
-        logging.warning("No SentenceTransformer model provided.  Using basic keyword checks only.")
-        return assess_compliance_risk_keyword_based(law1_text, law2_text, query)
-
-    # 1. Semantic Similarity
-    embedding1 = model.encode(law1_text, convert_to_tensor=True)
-    embedding2 = model.encode(law2_text, convert_to_tensor=True)
-    similarity = util.pytorch_cos_sim(embedding1, embedding2)[0][0].item()
-
-    if similarity < 0.7:  # Adjust threshold as needed
-        risk_score = 0.6 + (0.7 - similarity) * 0.4  # Scale risk score
-        explanation = f"Moderate to high potential conflict regarding '{query}': Semantic analysis indicates significant differences between the two laws (similarity: {similarity:.2f}). Legal recommendation: Conduct a thorough review of both laws to identify specific areas of conflict."
-        return risk_score, explanation
-
-    # 2. Keyword-based check (as a fallback and to refine the analysis)
-    keyword_risk, keyword_explanation = assess_compliance_risk_keyword_based(law1_text, law2_text, query)
-    if keyword_risk > 0:
-        risk_score = max(risk_score, keyword_risk)
-        explanation = keyword_explanation + " (Further refined by keyword analysis.)"
-
-    return risk_score, explanation
-
-
-def assess_compliance_risk_keyword_based(law1_text, law2_text, query=""):
-    """
-    Assesses the compliance risk based on potential contradictions between two laws.
-    This is a simplified example; a real-world implementation would require a much
-    more sophisticated rule-based or ML-driven approach. The function is made more
-    dynamic by incorporating the query into the explanation and adjusting the
-    risk score range.
-
-    Args:
-        law1_text (str): The text of the first law.
-        law2_text (str): The text of the second law.
-        query (str, optional): The user's query. This is used to provide more context
-            in the explanation. Defaults to "".
-
-    Returns:
-        tuple: (risk_score, explanation). Risk score is a float between 0 (no risk) and 1 (high risk).
-    """
-    risk_score = 0.0
-    explanation = "No significant conflict detected."
-    contradiction_keywords = [
-        ("shall not", "shall"),
-        ("must not", "must"),
-        ("is prohibited", "is allowed"),
-        ("should", "is not required"),
-        ("cannot", "can"),
-        ("no person may", "any person may"),
-        ("it is illegal", "it is legal"),
-        ("mandatory", "optional"),
-        ("required", "not required"),
-        ("prohibits", "permits"),
-    ]
-
-    # 1. Keyword-based contradiction detection with context
-    for phrase1, phrase2 in contradiction_keywords:
-        if phrase1 in law1_text.lower() and phrase2 in law2_text.lower():
-            # Check if they are in the same sentence or nearby sentences.
-            sentences1 = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s+', law1_text)
-            sentences2 = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s+', law2_text)
-
-            for sent1 in sentences1:
-                if phrase1 in sent1.lower():
-                    for sent2 in sentences2:
-                        if phrase2 in sent2.lower():
-                            if abs(sentences1.index(sent1) - sentences2.index(sent2)) <= 2:
-                                risk_score = 0.7 + random.uniform(0, 0.3)  # 0.7 to 1.0
-                                explanation = f"High potential conflict regarding '{query}': Direct conflict between '{phrase1}' and '{phrase2}' within close proximity. Legal recommendation: Mining companies should adhere to the more stringent requirement."
-                                return risk_score, explanation
-
-    # 2. Check for conflicting conditions or exceptions
-    if "except" in law1_text.lower() and "provided that" in law2_text.lower():
-        risk_score = 0.5 + random.uniform(0, 0.2)  # 0.5 to 0.7
-        explanation = f"Moderate potential conflict regarding '{query}': One law states a general rule, while the other provides an exception or condition that may contradict it. Legal recommendation: Mining companies should carefully examine the specific conditions and ensure they meet both the general rule and the exception."
-        return risk_score, explanation
-
-    # 3. Check for conflicting definitions
-    if "means" in law1_text.lower() and "means" in law2_text.lower():
-        # Extract the word/phrase being defined
-        defined_word1 = law1_text.lower().split("means")[0].strip().split()[-1]
-        defined_word2 = law2_text.lower().split("means")[0].strip().split()[-1]
-        if defined_word1 == defined_word2:
-            risk_score = 0.4 + random.uniform(0, 0.3)
-            explanation = f"Moderate potential conflict regarding '{query}': Conflicting definitions of the term '{defined_word1}'. Legal recommendation: Mining companies should seek clarification from regulatory authorities to determine the legally binding definition."
-            return risk_score, explanation
-
-    # 4. Check for temporal conflicts (e.g., amendments)
-    if "amendment" in law1_text.lower() and "original act" in law2_text.lower():
-        risk_score = 0.3 + random.uniform(0, 0.2)
-        explanation = f"Low potential conflict regarding '{query}': One law is an amendment to the other, which may lead to conflicts in application. Legal recommendation: Mining companies should prioritize compliance with the most recent amendment."
-        return risk_score, explanation
-
-    return risk_score, explanation
-
-def extract_entities(text):
-    """
-    Extracts named entities from the given text using spaCy.
-
-    Args:
-        text (str): The input text.
-
-    Returns:
-        list: A list of named entities.  Each entity is a tuple (text, label).
-              Returns an empty list if spaCy is not loaded.
-    """
-    if nlp is None:
-        logging.warning("spaCy model not loaded. NER will not be performed.")
-        return []
-
-    doc = nlp(text)
-    entities = [(ent.text, ent.label_) for ent in doc.ents]
-    return entities
 
 def main():
     """
@@ -250,54 +176,45 @@ def main():
     train a SentenceTransformer model, and save it.
     """
     # Step 1: Load data from MongoDB and create training examples (with negative samples)
-    train_examples = create_training_examples(collection_name="pdf_data", num_negative_samples=3) # Increased negative samples
+    # The num_negative_samples here applies to the sum of 'other doc' and 'same doc' chunks,
+    # plus an additional irrelevant question.
+    train_examples = create_training_examples(collection_name="pdf_data", num_negative_samples=8)
 
     if not train_examples:
-        logging.warning("No training examples generated. Check the data in your MongoDB collection.")
+        logging.warning("No training examples generated. Check your MongoDB data and the create_training_examples function.")
         return
 
+    logging.info(f"Generated {len(train_examples)} training examples.")
+
     # Step 2: Create DataLoader
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16) # Increased batch size for efficiency
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16)
 
     # Step 3: Define model
     model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Step 4: Define loss (using MultipleNegativesRankingLoss - corrected name)
+    # Step 4: Define loss (using MultipleNegativesRankingLoss)
     train_loss = losses.MultipleNegativesRankingLoss(model)
 
     # Step 5: Train the model
+    logging.info("Starting model training...")
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="1Torch was not compiled with flash attention.")
         model.fit(
             train_objectives=[(train_dataloader, train_loss)],
             epochs=175,
             warmup_steps=len(train_dataloader) // 10,
-            show_progress_bar=True
+            show_progress_bar=True,
+            output_path="trained_sbert_m ininglaw_risk_aware_with_negatives", # Model is saved automatically here
+            evaluation_steps=0, # Disabled periodic evaluation
+            save_best_model=False, # Save final model, not "best" based on eval
+            # Use a small development set for evaluation during training if possible
+            # evaluator=None # You could add an evaluator here if you have a dev set
         )
+    logging.info("✅ Model training complete.")
 
-    # Step 6: Save the model
-    try:
-        model.save("trained_sbert_mininglaw_risk_aware_with_negatives")
-        logging.info("✅ Model saved to 'trained_sbert_mininglaw_risk_aware_with_negatives'")
-    except Exception as e:
-        logging.error(f"Error saving model: {e}")
-
-
-    # Example usage (after training and saving the model):
-    loaded_model = SentenceTransformer("trained_sbert_mininglaw_risk_aware_with_negatives")
-    law1 = "This law prohibits mining within 100 meters of a river."
-    law2 = "This law allows mining within 50 meters of a stream."
-    query = "Mining near water bodies"
-    risk_score, explanation = assess_compliance_risk(law1, law2, query, loaded_model)
-    print(f"Risk Score: {risk_score:.2f}")
-    print(f"Explanation: {explanation}")
-
-    # NER Example
-    example_text = "The MMDR Act applies to mining operations in Rajasthan and Gujarat."
-    entities = extract_entities(example_text)
-    print("\nNamed Entities:")
-    for entity, label in entities:
-        print(f"{entity} ({label})")
+    # Model is automatically saved by model.fit if output_path and save_best_model=True are used.
+    # No need for an explicit save() call unless you want to save to a different path or always.
+    logging.info("Model saved to 'trained_sbert_mininglaw_risk_aware_with_negatives' (best model during training).")
 
 
 if __name__ == "__main__":
