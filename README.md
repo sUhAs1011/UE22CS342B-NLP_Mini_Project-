@@ -2,9 +2,9 @@
 
 This is our NLP(Natural Language Processing) coruse mini-project which we call it jackfruit problem, we have worked on the project "Chatbot to respond to text queries pertaining to various Acts, Rules, and Regulations applicable to Mining industries".
 
-In our project our NLP model analyze mining laws, regulations, and compliance rules. It processes user queries, retrieves relevant legal provisions, and detects contradictions between different laws. In case any conflict exists, the bot flags it and suggests resolutions accordingly. Additionally, it also provides risk assessments and legal recommendations to ensure mining companies remain compliant with regulatory frameworks.
-
-Our model used sentence transformer and cosine similarity as the primary methodologies to make the project and the sentence transformer model fetches the similar documents based on cosine similarity.
+First, extract.py pulls text from PDF mining laws and saves it to a MongoDB database.
+Next, train.py uses this text to fine-tune a SentenceTransformer model (like all-MiniLM-L6-v2). This model learns to understand the legal language, generating training examples with positive and negative question-answer pairs to improve its ability to find relevant text.
+Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the trained model to find the most relevant law passages from the database. If the relevance is too low, it dismisses the query. Otherwise, it simulates an LLM to provide a summary, risk assessment, and legal recommendations based on the retrieved texts.
 
 ### Activity Diagram
 
@@ -32,6 +32,21 @@ Our model used sentence transformer and cosine similarity as the primary methodo
    python3 train.py
    # to train the model
    ```
+
+### Output Screenshots
+
+When an invalid prompt is entered
+![image](https://github.com/user-attachments/assets/8c04b803-7133-45a9-a5f1-ab1e3347d70b)
+
+
+When we enter a valid prompt
+![image](https://github.com/user-attachments/assets/d9b9f11e-e38d-4238-bb8b-eacd12991b1e)
+
+
+Training
+![image](https://github.com/user-attachments/assets/0c4e4a02-001d-428a-89fd-8f17622e65ce)
+
+
 
 
 
