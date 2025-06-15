@@ -107,7 +107,7 @@ def expand_query(query, top_n=5):
 
 def main():
     try:
-        model_path = "trained_sbert_mininglaw_risk_aware_with_negatives"
+        model_path = "trained_sbert_mininglaw_risk_aware_with_negatives_enhanced"
         if not os.path.exists(model_path):
             raise ValueError(f"Trained model not found at {model_path}")
         model = SentenceTransformer(model_path)
