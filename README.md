@@ -11,11 +11,10 @@ Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the tr
 ![image](https://github.com/user-attachments/assets/d6876a28-7058-4f7d-9b17-169202d7e133)
 
 
-
-
 ### Architecture Diagram
 
-![image](https://github.com/user-attachments/assets/1f15b5dd-4cbd-49ee-a975-9e9f61fcc783)
+![image](https://github.com/user-attachments/assets/b4db0d9e-94eb-423f-a7df-1c93e341bc6d)
+
 
 ### Commands To Run
 
