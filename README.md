@@ -8,7 +8,8 @@ Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the tr
 
 ### Activity Diagram
 
-![image](https://github.com/user-attachments/assets/f290ed16-905d-4806-986a-1ffd2a2516aa)
+![image](https://github.com/user-attachments/assets/d6876a28-7058-4f7d-9b17-169202d7e133)
+
 
 
 
