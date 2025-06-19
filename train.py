@@ -1,15 +1,20 @@
-from pymongo import MongoClient
-from sentence_transformers import SentenceTransformer, InputExample, losses, util
-from torch.utils.data import DataLoader
+import argparse
+import json
 import logging
-import sys
-import warnings
-import torch
 import random
 import re
+import sys
+import warnings
+from typing import Dict, List, Tuple
+
 import numpy as np
 import spacy
-from typing import List, Dict, Tuple
+import torch
+from pymongo import MongoClient
+from sentence_transformers import (InputExample, SentenceTransformer,
+                                  losses, util)
+from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from torch.utils.data import DataLoader
 
 # Load a spaCy model (you might need to download one, e.g., 'en_core_web_sm')
 try:
@@ -29,20 +34,27 @@ except Exception as e:
     logging.error(f"❌ Error loading spaCy model: {e}")
     nlp = None
 
+
 # Set up logging
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level=logging.INFO,
-                    handlers=[logging.StreamHandler(stream=sys.stdout)])
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+    handlers=[logging.StreamHandler(stream=sys.stdout)],
+)
+
 
 def clean_text(text: str) -> str:
     """Cleans text by removing extra whitespace and some special characters."""
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
     # You might want to be more selective with char removal depending on legal text specifics
     # text = re.sub(r'[^\w\s.,;\'"():%/-]', '', text)
     return text
 
-def create_training_examples(collection_name="pdf_data", question_templates=None, num_negative_samples=3) -> List[InputExample]:
+
+def create_training_examples(
+    collection_name="pdf_data", question_templates=None, num_negative_samples=3
+) -> List[InputExample]:
     """
     Creates InputExample pairs from data in a MongoDB collection, focusing on passage-level
     chunking and generating diverse positive and negative examples for RAG.
@@ -61,11 +73,17 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
         db = client["mining_law_db"]
         collection = db[collection_name]
 
-        all_documents_data = list(collection.find({"text": {"$exists": True}, "filename": {"$exists": True}}))
-        logging.info(f"Loaded {len(all_documents_data)} documents from MongoDB collection '{collection_name}'")
+        all_documents_data = list(
+            collection.find({"text": {"$exists": True}, "filename": {"$exists": True}})
+        )
+        logging.info(
+            f"Loaded {len(all_documents_data)} documents from MongoDB collection '{collection_name}'"
+        )
 
         if not all_documents_data:
-            logging.warning("No documents found in the database. Exiting training example creation.")
+            logging.warning(
+                "No documents found in the database. Exiting training example creation."
+            )
             return []
 
         # Default question templates (can be customized)
@@ -81,23 +99,34 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
                     "How do I cook pasta?",
                     "What's the best movie of all time?",
                     "Explain quantum physics simply.",
-                ]
+                ],
             }
 
         all_chunks = []
         for doc in all_documents_data:
             filename = doc["filename"]
             full_text = clean_text(doc["text"])
-            
+
             # Simple paragraph-based chunking
             # You could also implement token-based chunking with overlap for more control
             # using libraries like langchain's RecursiveCharacterTextSplitter
-            chunks = [clean_text(para) for para in full_text.split('\n\n') if clean_text(para)]
+            chunks = [
+                clean_text(para) for para in full_text.split("\n\n") if clean_text(para)
+            ]
             for i, chunk in enumerate(chunks):
-                all_chunks.append({"filename": filename, "chunk_text": chunk, "doc_idx": all_documents_data.index(doc), "chunk_idx_in_doc": i})
+                all_chunks.append(
+                    {
+                        "filename": filename,
+                        "chunk_text": chunk,
+                        "doc_idx": all_documents_data.index(doc),
+                        "chunk_idx_in_doc": i,
+                    }
+                )
 
         if not all_chunks:
-            logging.warning("No valid chunks created from documents. Exiting training example creation.")
+            logging.warning(
+                "No valid chunks created from documents. Exiting training example creation."
+            )
             return []
 
         for i, current_chunk_info in enumerate(all_chunks):
@@ -110,7 +139,10 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
             # This is a very basic example; a real-world scenario might use keyword extraction
             # or a more sophisticated NLP model to identify the core topic.
             topic = "mining regulations"
-            if "environmental" in chunk_text.lower() or "emission" in chunk_text.lower():
+            if (
+                "environmental" in chunk_text.lower()
+                or "emission" in chunk_text.lower()
+            ):
                 topic = "environmental protection"
             elif "license" in chunk_text.lower() or "permit" in chunk_text.lower():
                 topic = "licensing procedures"
@@ -121,45 +153,74 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
 
             # Assign a risk level based on keywords in the chunk
             risk_level = "simple"
-            if any(k in chunk_text.lower() for k in ["shall not", "must not", "prohibited", "illegal", "violation"]):
+            if any(
+                k in chunk_text.lower()
+                for k in ["shall not", "must not", "prohibited", "illegal", "violation"]
+            ):
                 risk_level = "high_risk"
-            elif any(k in chunk_text.lower() for k in ["except", "provided that", "may", "should", "guideline"]):
+            elif any(
+                k in chunk_text.lower()
+                for k in ["except", "provided that", "may", "should", "guideline"]
+            ):
                 risk_level = "medium_risk"
-            elif any(k in chunk_text.lower() for k in ["procedure", "define", "policy", "framework"]):
+            elif any(
+                k in chunk_text.lower()
+                for k in ["procedure", "define", "policy", "framework"]
+            ):
                 risk_level = "low_risk"
 
             # Create positive example: question with the relevant chunk
-            question_template = question_templates.get(risk_level, question_templates["simple"])
+            question_template = question_templates.get(
+                risk_level, question_templates["simple"]
+            )
             question = question_template.format(topic=topic, filename=filename)
             examples.append(InputExample(texts=[question, chunk_text], label=1.0))
 
             # --- Generate Negative Examples ---
-            num_neg_per_type = num_negative_samples // 2 if num_negative_samples > 1 else num_negative_samples
+            num_neg_per_type = (
+                num_negative_samples // 2 if num_negative_samples > 1 else num_negative_samples
+            )
 
             # 1. Negative samples from OTHER DOCUMENTS (random chunks)
             other_doc_chunks = [
-                c for c in all_chunks
-                if c["doc_idx"] != doc_idx # Exclude chunks from the same document
+                c for c in all_chunks if c["doc_idx"] != doc_idx  # Exclude chunks from the same document
             ]
             if other_doc_chunks:
-                negative_other_doc_chunks = random.sample(other_doc_chunks, min(num_neg_per_type, len(other_doc_chunks)))
+                negative_other_doc_chunks = random.sample(
+                    other_doc_chunks, min(num_neg_per_type, len(other_doc_chunks))
+                )
                 for neg_chunk_info in negative_other_doc_chunks:
-                    examples.append(InputExample(texts=[question, neg_chunk_info["chunk_text"]], label=0.0))
+                    examples.append(
+                        InputExample(
+                            texts=[question, neg_chunk_info["chunk_text"]], label=0.0
+                        )
+                    )
 
             # 2. Negative samples from THE SAME DOCUMENT (different chunks)
             same_doc_other_chunks = [
-                c for c in all_chunks
-                if c["doc_idx"] == doc_idx and c["chunk_idx_in_doc"] != chunk_idx_in_doc # Exclude the current chunk
+                c
+                for c in all_chunks
+                if c["doc_idx"] == doc_idx
+                and c["chunk_idx_in_doc"] != chunk_idx_in_doc  # Exclude the current chunk
             ]
             if same_doc_other_chunks and num_neg_per_type > 0:
-                negative_same_doc_chunks = random.sample(same_doc_other_chunks, min(num_neg_per_type, len(same_doc_other_chunks)))
+                negative_same_doc_chunks = random.sample(
+                    same_doc_other_chunks,
+                    min(num_neg_per_type, len(same_doc_other_chunks)),
+                )
                 for neg_chunk_info in negative_same_doc_chunks:
-                    examples.append(InputExample(texts=[question, neg_chunk_info["chunk_text"]], label=0.0))
-            
+                    examples.append(
+                        InputExample(
+                            texts=[question, neg_chunk_info["chunk_text"]], label=0.0
+                        )
+                    )
+
             # 3. Irrelevant questions paired with the current positive chunk
             if question_templates.get("irrelevant"):
                 irrelevant_question = random.choice(question_templates["irrelevant"])
-                examples.append(InputExample(texts=[irrelevant_question, chunk_text], label=0.0))
+                examples.append(
+                    InputExample(texts=[irrelevant_question, chunk_text], label=0.0)
+                )
 
         return examples
 
@@ -167,54 +228,118 @@ def create_training_examples(collection_name="pdf_data", question_templates=None
         logging.error(f"Error creating training examples: {e}", exc_info=True)
         return []
     finally:
-        if 'client' in locals() and client:
+        if "client" in locals() and client:
             client.close()
+
 
 def main():
     """
     Main function to load data from MongoDB, create training examples (including negative samples),
     train a SentenceTransformer model, and save it.
     """
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Train a SentenceTransformer model for legal text."
+    )
+    parser.add_argument(
+        "--config", type=str, default="config.json", help="Path to the configuration file."
+    )
+    args = parser.parse_args()
+
+    # Load configuration from JSON file
+    with open(args.config, "r") as f:
+        config = json.load(f)
+
+    # Set random seeds for reproducibility
+    seed = config.get("seed", 42)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
     # Step 1: Load data from MongoDB and create training examples (with negative samples)
     # The num_negative_samples here applies to the sum of 'other doc' and 'same doc' chunks,
     # plus an additional irrelevant question.
-    train_examples = create_training_examples(collection_name="pdf_data", num_negative_samples=8)
+    train_examples = create_training_examples(
+        collection_name=config["collection_name"],
+        num_negative_samples=config["num_negative_samples"],
+    )
 
     if not train_examples:
-        logging.warning("No training examples generated. Check your MongoDB data and the create_training_examples function.")
+        logging.warning(
+            "No training examples generated. Check your MongoDB data and the create_training_examples function."
+        )
         return
 
     logging.info(f"Generated {len(train_examples)} training examples.")
 
-    # Step 2: Create DataLoader
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16)
+    # Create a small development set (e.g., 10% of the training data)
+    if config.get("eval_size") and config["eval_size"] > 0:
+        eval_size = int(len(train_examples) * config["eval_size"])
+        train_examples, eval_examples = (
+            train_examples[eval_size:],
+            train_examples[:eval_size],
+        )
+        logging.info(f"Created evaluation set with {len(eval_examples)} examples.")
+    else:
+        eval_examples = []
+        logging.info("No evaluation set created.")
+
+    # Step 2: Create DataLoaders
+    train_dataloader = DataLoader(
+        train_examples, shuffle=True, batch_size=config["batch_size"]
+    )
+    if eval_examples:
+        eval_dataloader = DataLoader(eval_examples, batch_size=config["batch_size"])
 
     # Step 3: Define model
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer(config["model_name"])
+    # Move model to GPU if available
+    if torch.cuda.is_available():
+        model.to("cuda")
+        logging.info("✅ Model moved to GPU.")
+    else:
+        logging.info("⚠️  No GPU detected. Training on CPU.")
 
     # Step 4: Define loss (using MultipleNegativesRankingLoss)
     train_loss = losses.MultipleNegativesRankingLoss(model)
 
-    # Step 5: Train the model
+    # Step 5: Define evaluator
+    if eval_examples:
+        evaluator = InformationRetrievalEvaluator(
+            queries=[example.texts[0] for example in eval_examples],  # questions
+            corpus=[example.texts[1] for example in eval_examples],  # corpus
+            relevant_docs={
+                i: {0} for i in range(len(eval_examples))
+            },  # i-th query has only document i in the corpus as relevant
+            corpus_chunk_size=config["batch_size"],
+        )
+    else:
+        evaluator = None
+
+    # Step 6: Train the model
     logging.info("Starting model training...")
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="1Torch was not compiled with flash attention.")
+        warnings.filterwarnings(
+            "ignore", message="1Torch was not compiled with flash attention."
+        )
         model.fit(
             train_objectives=[(train_dataloader, train_loss)],
-            epochs=175,
+            epochs=config["epochs"],
             warmup_steps=len(train_dataloader) // 10,
             show_progress_bar=True,
-            output_path="trained_sbert_m ininglaw_risk_aware_with_negatives", # Model is saved automatically here
-            evaluation_steps=0, # Disabled periodic evaluation
-            save_best_model=False, # Save final model, not "best" based on eval
-            # Use a small development set for evaluation during training if possible
-            # evaluator=None # You could add an evaluator here if you have a dev set
+            output_path=config["output_path"],  # Model is saved automatically here
+            evaluation_steps=config.get(
+                "evaluation_steps", 500
+            ),  # Evaluate every N steps
+            evaluator=evaluator,
+            save_best_model=True,  # Save the best model based on evaluation score
         )
     logging.info("✅ Model training complete.")
 
     # Model is automatically saved by model.fit if output_path and save_best_model=True are used.
     # No need for an explicit save() call unless you want to save to a different path or always.
-    logging.info("Model saved to 'trained_sbert_mininglaw_risk_aware_with_negatives' (best model during training).")
+    logging.info(f"Model saved to '{config['output_path']}' (best model during training).")
 
 
 if __name__ == "__main__":
