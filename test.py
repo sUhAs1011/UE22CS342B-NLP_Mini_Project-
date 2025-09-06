@@ -10,16 +10,6 @@ import tkinter as tk
 from tkinter import scrolledtext, Button, Entry, Label, PhotoImage, font, messagebox
 from typing import List, Dict, Tuple
 
-# --- LLM Integration Placeholder ---
-# In a real application, you would replace this with an actual LLM API call
-# For example, using Google's Gemini API:
-# from google.generativeai import GenerativeModel
-# model = GenerativeModel('gemini-pro')
-# response = model.generate_content(prompt)
-# Or for OpenAI:
-# from openai import OpenAI
-# client = OpenAI()
-# response = client.chat.completions.create(model="gpt-3.5-turbo", messages=[...])
 
 def generate_response_with_llm(query: str, retrieved_docs: List[Dict]) -> Tuple[str, float, str]:
     """
@@ -328,3 +318,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
