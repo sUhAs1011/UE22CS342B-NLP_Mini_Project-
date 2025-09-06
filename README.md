@@ -20,17 +20,24 @@ Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the tr
 
 
  ```shell
-   python extract.py
+   python data_extract.py
    # or
-   python3 extract.py
+   python3 data_extract.py
    # to extract information from pdf files and push it into mongoDB database
    ```
 
  ```shell
-   python train.py
+   python model_training.py
    # or
-   python3 train.py
+   python3 model_training.py
    # to train the model
+   ```
+
+ ```shell
+   python model_testing.py
+   # or
+   python3 model_testing.py
+   # to test the model
    ```
 
 ### Output Screenshots
