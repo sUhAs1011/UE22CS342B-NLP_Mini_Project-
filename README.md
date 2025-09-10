@@ -34,10 +34,7 @@ Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the tr
    ```
 
  ```shell
-   python model_testing.py
-   # or
-   python3 model_testing.py
-   # to test the model
+   streamlit run model_testing.py
    ```
 
 ### Output Screenshots
