@@ -4,6 +4,8 @@ This is our NLP(Natural Language Processing) coruse mini-project where we have w
 
 We extract the mining_laws data from the documents using `PyPDF2` module which pulls text from mining laws PDF and push the data int to thr MongoDB database. Following the data extraction we then train the model with the help of SentenceTransformer model (like all-MiniLM-L6-v2) to fine tune the model. This fine-tuned model learns to understand the legal language, generating training examples with positive and negative question-answer pairs to improve its ability to find relevant text.
 
+Finally we test the trained model using `Streamlit` which is used to create an intervace web interface where the user enter the mining-law queries and based on the query the model suggests the relevant laws and also tell if any contradictions exists.
+
 
 ### Activity Diagram
 
@@ -43,11 +45,6 @@ Streamlit Portfolio
 
 Training
 ![image](https://github.com/user-attachments/assets/0c4e4a02-001d-428a-89fd-8f17622e65ce)
-
-
-
-
-
 
 
 Team Members:  
