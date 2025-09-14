@@ -1,6 +1,6 @@
 # NLP_Mini_Project
 
-This is our NLP(Natural Language Processing) coruse mini-project which we call it jackfruit problem, we have worked on the project "Chatbot to respond to text queries pertaining to various Acts, Rules, and Regulations applicable to Mining industries".
+This is our NLP(Natural Language Processing) coruse mini-project where we have worked on the a Chatbot that responds to text queries pertaining to various Acts, Rules, and Regulations applicable to Mining industries as well give a compliance risk analysis in case any contradicting laws exist.
 
 First, extract.py pulls text from PDF mining laws and saves it to a MongoDB database.
 Next, train.py uses this text to fine-tune a SentenceTransformer model (like all-MiniLM-L6-v2). This model learns to understand the legal language, generating training examples with positive and negative question-answer pairs to improve its ability to find relevant text.
