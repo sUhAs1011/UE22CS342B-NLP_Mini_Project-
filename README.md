@@ -39,12 +39,7 @@ Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the tr
 
 ### Output Screenshots
 
-When an invalid prompt is entered
-![image](https://github.com/user-attachments/assets/8c04b803-7133-45a9-a5f1-ab1e3347d70b)
-
-
-When we enter a valid prompt
-![image](https://github.com/user-attachments/assets/d9b9f11e-e38d-4238-bb8b-eacd12991b1e)
+Streamlit Portfolio
 
 
 Training
