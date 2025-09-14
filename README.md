@@ -40,7 +40,7 @@ Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the tr
 ### Output Screenshots
 
 Streamlit Portfolio
-
+![chatbot](https://github.com/user-attachments/assets/70b5aef2-b36c-4122-b240-6cff809d5d95)
 
 Training
 ![image](https://github.com/user-attachments/assets/0c4e4a02-001d-428a-89fd-8f17622e65ce)
