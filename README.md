@@ -2,9 +2,8 @@
 
 This is our NLP(Natural Language Processing) coruse mini-project where we have worked on the a Chatbot that responds to text queries pertaining to various Acts, Rules, and Regulations applicable to Mining industries as well give a compliance risk analysis in case any contradicting laws exist.
 
-We extract the mining_laws data from the documents using `PyPDF2` module which pulls text from mining laws PDF and push the data int to thr MongoDB database.
-Next, train.py uses this text to fine-tune a SentenceTransformer model (like all-MiniLM-L6-v2). This model learns to understand the legal language, generating training examples with positive and negative question-answer pairs to improve its ability to find relevant text.
-Finally, test.py runs a Tkinter GUI. When a user asks a question, it uses the trained model to find the most relevant law passages from the database. If the relevance is too low, it dismisses the query. Otherwise, it simulates an LLM to provide a summary, risk assessment, and legal recommendations based on the retrieved texts.
+We extract the mining_laws data from the documents using `PyPDF2` module which pulls text from mining laws PDF and push the data int to thr MongoDB database. Following the data extraction we then train the model with the help of SentenceTransformer model (like all-MiniLM-L6-v2) to fine tune the model. This fine-tuned model learns to understand the legal language, generating training examples with positive and negative question-answer pairs to improve its ability to find relevant text.
+
 
 ### Activity Diagram
 
