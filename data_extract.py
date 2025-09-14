@@ -2,7 +2,7 @@ import os
 import PyPDF2
 import logging
 import sys
-from pymongo import MongoClient  # Import the MongoDB client
+from pymongo import MongoClient 
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
@@ -25,7 +25,7 @@ def extract_text_from_pdf(pdf_path):
         with open(pdf_path, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
             for page in reader.pages:
-                text += page.extract_text() or ""  # Handle None extracted text
+                text += page.extract_text() or ""  
         logging.info(f"Successfully extracted text from {pdf_path}")
         return text
     except FileNotFoundError:
@@ -58,7 +58,7 @@ def extract_text_from_all_pdfs(directory):
         if filename.lower().endswith(".pdf"):
             pdf_path = os.path.join(directory, filename)
             text = extract_text_from_pdf(pdf_path)
-            if text is not None:  # Only add if extraction was successful
+            if text is not None:  
                 pdf_texts[filename] = text
     return pdf_texts
 
@@ -72,16 +72,16 @@ def store_text_in_mongodb(data, collection_name="pdf_data"):
             Defaults to "pdf_data".
     """
     try:
-        # Connect to MongoDB (adjust the connection string as needed)
+
         client = MongoClient("mongodb://localhost:27017/")
-        db = client["mining_law_db"]  # Use your database name
+        db = client["mining_law_db"]  
         collection = db[collection_name]
 
-        # Prepare data for insertion
+
         documents = [{"filename": filename, "text": text} for filename, text in data.items()]
 
         if documents:
-            # Insert the documents into the collection
+
             result = collection.insert_many(documents)
             logging.info(f"Successfully inserted {len(result.inserted_ids)} documents into MongoDB collection '{collection_name}'")
         else:
@@ -90,18 +90,18 @@ def store_text_in_mongodb(data, collection_name="pdf_data"):
     except Exception as e:
         logging.error(f"An error occurred while connecting to or writing to MongoDB: {e}")
     finally:
-        client.close()  # Ensure the connection is closed
+        client.close()  
 
 def main():
     """
     Main function to extract text from PDF files in a specified directory
     and store the results in a MongoDB database.
     """
-    pdf_directory = r"C:\Users\Admin\Downloads\Legalbot-master_1\datasets"  # Changed to raw string
+    pdf_directory = r"C:\Users\Admin\Downloads\Legalbot-master_1\datasets" 
     extracted_texts = extract_text_from_all_pdfs(pdf_directory)
 
     if extracted_texts:
-        store_text_in_mongodb(extracted_texts) # Store to MongoDB
+        store_text_in_mongodb(extracted_texts) 
         for filename, text in extracted_texts.items():
             print(f"\n--- Extracted text from {filename} ---")
             print(text[:500] + ("..." if len(text) > 500 else ""))
